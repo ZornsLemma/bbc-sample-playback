@@ -103,7 +103,8 @@ endmacro
 
     ; wav_to_psg packs 4-bit values into bytes with the first value in the high bits.
 .sample
-    incbin "sine-440hz-8khz-mono.wav.psg.bin"
+    ; incbin "sine-440hz-8khz-mono.wav.psg.bin"
+    incbin "brush-strokes-8khz-mono.wav.psg.bin"
 .sample_end
 
 .end

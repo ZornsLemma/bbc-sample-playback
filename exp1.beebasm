@@ -19,7 +19,6 @@ macro write_a
 endmacro
 
     org $2000
-    ; TODO: My copy of remastered AUG has "SHETLA" ion line 230 in program 423 - report if not fixed
 
 .start
     ; AUG says we must do all slow databus acccess with interrupts disabled.

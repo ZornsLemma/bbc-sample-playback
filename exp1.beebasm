@@ -1,0 +1,44 @@
+via_outb = $fe40
+via_outa = $fe41
+via_ddra = $fe43
+ddr_write = $43
+
+; Write the byte in A to the sound chip (via the slow databus).
+macro write_a
+    ; Put the value in A on the slow databus.
+    sta via_outa
+    ; Use the addressable latch to toggle the sound chip write pin. See AUG
+    ; section 23.2; the value we write to via_outb is %(PB3 PB2 PB1 PB0):
+    ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
+    ;   %000 = SN76489 write enable
+    ; - PB3 is the bit to write.
+    lda #%0000
+    sta via_outb
+    lda #%1000
+    sta via_outb
+endmacro
+
+    org $2000
+    ; TODO: My copy of remastered AUG has "SHETLA" ion line 230 in program 423 - report if not fixed
+
+.start
+    ; AUG says we must do all slow databus acccess with interrupts disabled.
+    sei
+
+    ; Set slow database up for write.
+    lda #$ff
+    sta via_ddra
+
+    ; Example bytes from AUG: $80, $20, $90 play a tone on channel 3.
+    lda #$80
+    write_a
+    lda #$20
+    write_a
+    lda #$90
+    write_a
+
+    cli
+    rts
+.end
+
+save "test", start, end

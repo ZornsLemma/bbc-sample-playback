@@ -12,7 +12,7 @@ via_outa = $fe41
 via_ddra = $fe43
 
 ; SN76489 constants.
-sn_latch_channel = %1000 << 4
+sn_latch_tone    = %1000 << 4
 sn_latch_volume  = %1001 << 4
 sn_channel       = 0 << 5 ; 0 is a tone channel in hardware, unlike OS where 0 is noise
 
@@ -28,6 +28,15 @@ macro write_a
     ; - PB3 is the bit to write.
     lda #%0000
     sta via_outb
+    ; https://github.com/crtc-demos/bbc-teletext-video-player/blob/master/teletext/audio/aplay.a65
+    ; says we need at least 8us delay here.
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
     lda #%1000
     sta via_outb
 endmacro
@@ -45,7 +54,7 @@ endmacro
     ; Set channel 0's tone to 1.
     ; TODO: IIUC, this is tricky's advice on stardot. smspower.org link seems to say 0 but
     ; tricky says it's different on the BBC. Maybe try it just to confirm?
-    lda #sn_latch_channel or sn_channel or 1 ; low bits of tone are 1
+    lda #sn_latch_tone or sn_channel or 1 ; low bits of tone are 1
     write_a
     lda #sn_channel or 0 ; high bits of tone are 0
     write_a
@@ -91,10 +100,10 @@ endmacro
     ; further effort. Speculation!)
 .delay
     ; On a *really* rough calculation, writing the two 4-bit values packed into a byte takes 90 cycles,
-    ; so let's say there are 45 cycles of overhead per value. With a 2MHz clock and an 8kHz sample rate
+    ; so let's say there are 45 cycles of overhead per value. OK, now an extra 7*3 since I've added nops. With a 2MHz clock and an 8kHz sample rate
     ; we need to write a sample every 250 cycles, so we need to burn about 205 cycles here. This is all
-    ; so rough and ready that the '5' is excess precision...
-    ldx #50 ; 50*5 cycles per loop=250ish
+    ; so rough and ready that the '5' is excess precision... With nops, 205-21=184-ish.
+    ldx #37 ; 37*5 cycles per loop=185ish
 .delay_loop
     dex
     bne delay_loop

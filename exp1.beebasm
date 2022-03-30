@@ -1,9 +1,23 @@
+; References:
+;   https://www.smspower.org/Development/SN76489, which links to:
+;   https://www.smspower.org/forums/9686-VoiceEmulationOnTheSMS#44103
+;   which is offline but has been forked and tweaked:
+;   https://github.com/maxim-zhao/wav_to_psg
+
+ptr = $70
+
+; System VIA addresses needed to talk to the sound chip.
 via_outb = $fe40
 via_outa = $fe41
 via_ddra = $fe43
-ddr_write = $43
+
+; SN76489 constants.
+sn_latch_channel = %1000 << 4
+sn_latch_volume  = %1001 << 4
+sn_channel       = 0 << 5 ; 0 is a tone channel in hardware, unlike OS where 0 is noise
 
 ; Write the byte in A to the sound chip (via the slow databus).
+; TODO: May well be acceptable to use a subroutine for this instead of a macro.
 macro write_a
     ; Put the value in A on the slow databus.
     sta via_outa
@@ -24,20 +38,74 @@ endmacro
     ; AUG says we must do all slow databus acccess with interrupts disabled.
     sei
 
-    ; Set slow database up for write.
+    ; Set slow databus up for write.
     lda #$ff
     sta via_ddra
 
-    ; Example bytes from AUG: $80, $20, $90 play a tone on channel 3.
-    lda #$80
+    ; Set channel 0's tone to 1.
+    ; TODO: IIUC, this is tricky's advice on stardot. smspower.org link seems to say 0 but
+    ; tricky says it's different on the BBC. Maybe try it just to confirm?
+    lda #sn_latch_channel or sn_channel or 1 ; low bits of tone are 1
     write_a
-    lda #$20
-    write_a
-    lda #$90
+    lda #sn_channel or 0 ; high bits of tone are 0
     write_a
 
+    ; TODO: We may want to use Y to iterate through a page at a time, and/or to page-align
+    ; the sample. Let's not worry about it for the moment until I see how timings work.
+    lda #<sample
+    sta ptr
+    lda #>sample
+    sta ptr+1
+.loop
+    ; TODO: Could just use self-modifying "lda abs" if easier/faster
+    ldy #0
+    lda (ptr),y
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #sn_latch_volume or sn_channel
+    write_a
+    jsr delay
+    lda (ptr),y ; TODO: note we assume Y=0 already
+    and #%1111
+    ora #sn_latch_volume or sn_channel
+    write_a
+    jsr delay
+    ; TODO: I don't know if we need to be clever to have constant cycle count for smooth playback,
+    ; let's just ignore it for now.
+    inc ptr
+    bne loop
+    inc ptr+1
+    lda ptr+1
+    cmp #>sample_end ; TODO: will cut off last partial page of sample, not a problem for initial hack
+    bne loop
+
+    ; Re-enable interrupts and return control.
     cli
     rts
+
+    ; TODO: This is a super crude delay loop to give *approximately* 8kHz playback. Be more careful here
+    ; once things are working properly. (Though if we are working with interrupts, a certain amount of
+    ; jitter will be outside our control but we probably get called at a consistent rate without any
+    ; further effort. Speculation!)
+.delay
+    ; On a *really* rough calculation, writing the two 4-bit values packed into a byte takes 90 cycles,
+    ; so let's say there are 45 cycles of overhead per value. With a 2MHz clock and an 8kHz sample rate
+    ; we need to write a sample every 250 cycles, so we need to burn about 205 cycles here. This is all
+    ; so rough and ready that the '5' is excess precision...
+    ldx #50 ; 50*5 cycles per loop=250ish
+.delay_loop
+    dex
+    bne delay_loop
+    assert hi(P%) == hi(delay_loop) ; we don't want a page-crossing penalty TODO: check this is right way to check!
+    rts
+
+    ; wav_to_psg packs 4-bit values into bytes with the first value in the high bits.
+.sample
+    incbin "sine-440hz-8khz-mono.wav.psg.bin"
+.sample_end
+
 .end
 
 save "test", start, end

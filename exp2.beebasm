@@ -22,6 +22,7 @@ sn_channel_2     = 2 << 5
 
 ; A macro for use after performance-critical branch instructions to check that
 ; no page-crossing penalty is incurred.
+; TODO: maybe create things like "fast_beq target" macros which wrap beq+check_no_page_crossing
 macro check_no_page_crossing target
     assert hi(*) == hi(target)
 endmacro
@@ -67,6 +68,7 @@ endmacro
     lda #>sample
     sta ptr+1
 .loop
+    ; TODO: Could we save a few cycles by doing lda #0:bne low_nybble and inc/decing lda # operand? we'd have to repeat the lda (ptr),y instruction though. then again, *if* we're corrupting Y anyway we could maybe use ldy #imm here, and have a single lda abs which is self-modified before it to do the load.
     ; TODO: Could just use self-modifying "lda abs" if easier/faster
     ldy #0
     lda (ptr),y
@@ -78,8 +80,17 @@ endmacro
     lsr a
     lsr a
     inc current_nybble
+    lda ptr
+    cmp #<sample_end
+    beq maybe_at_sample_end
+    check_no_page_crossing maybe_at_sample_end
     bvc got_nybble ; always branch
     check_no_page_crossing got_nybble
+.maybe_at_sample_end
+    lda ptr+1
+    cmp #>sample_end
+    beq at_sample_end
+    bne got_nybble
 .low_nybble
     and #%1111
     dec current_nybble
@@ -88,109 +99,21 @@ endmacro
     ora current_channel
     jsr write_a
 
-    ; 5+3+2+.6666*3+.3333*(2+2+3)=14.333 cycles
-    inc current_channel SFTODOWITHWRAPPING
-    lda current_channel
-    cmp #SFTODO
-    bne SFTODO9
-    lda #SFTODO
-    sta current_channel
-.SFTODO9
-
+    ; Advance current_channel, wrapping back to sn_channel_0 after sn_channel_2.
     ; 3+2+0.666*3+0.333*(2+2)+2+3=13.333 cycles
-    lda current_channel ; 3
-    cmp #sn_channel_2; 2
+    lda current_channel
+    cmp #sn_channel_2
     bcc no_channel_wrap
     check_no_page_crossing no_channel_wrap
-    lda #sn_channel_0-2; 2 ; we subtract 2 because C is set so following adc will add 2
+    lda #sn_channel_0-2 ; we subtract 2 because C is set so following adc will add 2
 .no_channel_wrap
-    adc #1 ; 2
-    sta current_channel ; 3
-
-
-    ; 16 cycles
-    inc current_channel ; 5
-    dec CHANNELCOUNTDOWN ; 5
-    bne SFTODO10 ; .666*3+.333*(2+
-    lda #SFTODO ; 2
-    sta current_channel ; 3
-    lda #3 ; 2
-    sta CHANNELCOUNTDOWN ; 3
-.SFTODO10
-
+    adc #1
+    sta current_channel
 
     jsr delay
+    jmp loop
 
-
-XXXOLDBELOWHERE
-
-    ; TODO: Could just use self-modifying "lda abs" if easier/faster
-    ldy #0
-    lda (ptr),y
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #sn_latch_volume or sn_channel_0
-    jsr write_a
-    jsr delay
-
-    lda (ptr),y ; TODO: note we assume Y=0 already
-    and #%1111
-    ora #sn_latch_volume or sn_channel_1
-    jsr write_a
-    jsr delay
-
-    ; TODO: I don't know if we need to be clever to have constant cycle count for smooth playback,
-    ; let's just ignore it for now. We also ignore the possibility the first two of three incs is the one
-    ; that tips high byte over end, so we might play 2 bytes too far...
-    inc ptr
-    bne nocarry1
-    inc ptr+1
-.nocarry1
-
-    lda (ptr),y
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #sn_latch_volume or sn_channel_2
-    jsr write_a
-    jsr delay
-
-    lda (ptr),y ; TODO: note we assume Y=0 already
-    and #%1111
-    ora #sn_latch_volume or sn_channel_0
-    jsr write_a
-    jsr delay
-
-    inc ptr
-    bne nocarry2
-    inc ptr+1
-.nocarry2
-
-    lda (ptr),y
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #sn_latch_volume or sn_channel_1
-    jsr write_a
-    jsr delay
-
-    lda (ptr),y ; TODO: note we assume Y=0 already
-    and #%1111
-    ora #sn_latch_volume or sn_channel_2
-    jsr write_a
-    jsr delay
-
-    inc ptr
-    bne loop
-    inc ptr+1
-    lda ptr+1
-    cmp #>sample_end ; TODO: will cut off last partial page of sample, not a problem for initial hack
-    bne loop
-
+.at_sample_end
     ; Re-enable interrupts and return control.
     cli
     rts

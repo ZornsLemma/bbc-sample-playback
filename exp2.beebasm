@@ -106,9 +106,9 @@ endmacro
     cmp #sn_channel_2
     bcc no_channel_wrap
     check_no_page_crossing no_channel_wrap
-    lda #sn_channel_0-2 ; we subtract 2 because C is set so following adc will add 2
+    lda #(sn_channel_0-(1<<5)-1) and &ff ; we subtract 1 because C is set
 .no_channel_wrap
-    adc #1
+    adc #1<<5
     sta current_channel
 
     jsr delay

@@ -29,7 +29,9 @@ macro write_a
     lda #%0000
     sta via_outb
     ; https://github.com/crtc-demos/bbc-teletext-video-player/blob/master/teletext/audio/aplay.a65
-    ; says we need at least 8us delay here.
+    ; says we need at least 8us delay here. TODO: tricky's code seems to use a tighter actual 8us
+    ; delay, which may be better - particularly if we're called by interrupts and a delay holds up
+    ; foreground task a bit longer.
     nop
     nop
     nop

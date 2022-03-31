@@ -4,7 +4,9 @@
 ;   which is offline but has been forked and tweaked:
 ;   https://github.com/maxim-zhao/wav_to_psg
 
-current_nybble = $72
+opcode_clc = $18
+opcode_sec = $38
+
 current_channel = $73
 
 ; System VIA addresses needed to talk to the sound chip.
@@ -53,10 +55,8 @@ endmacro
     lda #0 ; high bits of tone are 0
     jsr write_a
 
-    ; current_nybble toggles between 63 and 64 so we can test it with BIT and
-    ; get the result in V.
-    lda #63
-    sta current_nybble
+    lda #opcode_clc
+    sta current_nybble_clc_or_sec
     lda #sn_channel_0
     sta current_channel
 
@@ -72,19 +72,22 @@ endmacro
 .lda_abs_ptr
 ptr = lda_abs_ptr + 1
     lda $ffff ; patched at runtime
-    bit current_nybble
-    bvs low_nybble
+.current_nybble_clc_or_sec
+    brk ; patched at runtime
+    bcs low_nybble
     check_no_page_crossing low_nybble
     lsr a
     lsr a
     lsr a
     lsr a
-    inc current_nybble ; set to 64 so "bit" will set V when testing
-    bvc got_nybble ; always branch
+    ldy #opcode_sec
+    sty current_nybble_clc_or_sec
+    bne got_nybble ; always branch
     check_no_page_crossing got_nybble
 .low_nybble
     and #%1111
-    dec current_nybble ; set to 63 so "bit" will clear V when testing
+    ldy #opcode_clc
+    sty current_nybble_clc_or_sec
     inc ptr
     bne got_nybble
     check_no_page_crossing got_nybble

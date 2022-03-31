@@ -170,7 +170,7 @@ sn_channel_2     = 2 << 5
 .sample
     ; incbin "sine-440hz-8khz-mono.wav.psg.bin"
     ; incbin "brush-strokes-8khz-mono.wav.psg.bin"
-    incbin "brush-strokes-8kh-mono-heavy-compression.wav.psg.bin"
+    incbin "brush-strokes-8khz-mono.wav.pcmenc"
 .sample_end
 
 .end

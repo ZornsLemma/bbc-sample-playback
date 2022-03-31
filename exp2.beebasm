@@ -7,8 +7,6 @@
 opcode_clc = $18
 opcode_sec = $38
 
-current_channel = $73
-
 ; System VIA addresses needed to talk to the sound chip.
 via_outb = $fe40
 via_outa = $fe41
@@ -57,7 +55,7 @@ endmacro
 
     lda #opcode_clc
     sta current_nybble_clc_or_sec
-    lda #sn_channel_0
+    lda #sn_latch_volume or sn_channel_0
     sta current_channel
 
     ; TODO: We may want to use Y to iterate through a page at a time, and/or to page-align
@@ -67,10 +65,8 @@ endmacro
     lda #>sample
     sta ptr+1
 .loop
-    ; TODO: Could we save a few cycles by doing lda #0:bne low_nybble and inc/decing lda # operand? we'd have to repeat the lda (ptr),y instruction though. then again, *if* we're corrupting Y anyway we could maybe use ldy #imm here, and have a single lda abs which is self-modified before it to do the load.
-    ; TODO: Could just use self-modifying "lda abs" if easier/faster
 .lda_abs_ptr
-ptr = lda_abs_ptr + 1
+ptr = lda_abs_ptr+1
     lda $ffff ; patched at runtime
 .current_nybble_clc_or_sec
     brk ; patched at runtime
@@ -99,17 +95,17 @@ ptr = lda_abs_ptr + 1
     cpy #>sample_end
     beq at_sample_end
 .got_nybble
-    ora #sn_latch_volume
-    ora current_channel
+.ora_imm_latch_volume_channel
+current_channel = ora_imm_latch_volume_channel+1
+    ora #$ff ; patched at runtime
     jsr write_a
 
-    ; Advance current_channel, wrapping back to sn_channel_0 after sn_channel_2.
-    ; 3+2+0.666*3+0.333*(2+2)+2+3=13.333 cycles
+    ; Advance current channel, wrapping back to sn_channel_0 after sn_channel_2.
     lda current_channel
-    cmp #sn_channel_2
+    cmp #sn_latch_volume or sn_channel_2
     bcc no_channel_wrap
     check_no_page_crossing no_channel_wrap
-    lda #(sn_channel_0-(1<<5)-1) and &ff ; we subtract 1 because C is set
+    lda #((sn_latch_volume or sn_channel_0) - (1<<5) - 1) and &ff ; we subtract 1 because C is set
 .no_channel_wrap
     adc #1<<5
     sta current_channel

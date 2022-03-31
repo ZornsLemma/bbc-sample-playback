@@ -4,7 +4,6 @@
 ;   which is offline but has been forked and tweaked:
 ;   https://github.com/maxim-zhao/wav_to_psg
 
-ptr = $70
 current_nybble = $72
 current_channel = $73
 
@@ -70,8 +69,9 @@ endmacro
 .loop
     ; TODO: Could we save a few cycles by doing lda #0:bne low_nybble and inc/decing lda # operand? we'd have to repeat the lda (ptr),y instruction though. then again, *if* we're corrupting Y anyway we could maybe use ldy #imm here, and have a single lda abs which is self-modified before it to do the load.
     ; TODO: Could just use self-modifying "lda abs" if easier/faster
-    ldy #0
-    lda (ptr),y
+.lda_abs_ptr
+ptr = lda_abs_ptr + 1
+    lda $ffff ; patched at runtime
     bit current_nybble
     bvs low_nybble
     check_no_page_crossing low_nybble

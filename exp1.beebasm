@@ -4,6 +4,8 @@
 ;   which is offline but has been forked and tweaked:
 ;   https://github.com/maxim-zhao/wav_to_psg
 
+multi_channel = TRUE
+
 ptr = $70
 
 ; System VIA addresses needed to talk to the sound chip.
@@ -14,34 +16,9 @@ via_ddra = $fe43
 ; SN76489 constants.
 sn_latch_tone    = %1000 << 4
 sn_latch_volume  = %1001 << 4
-sn_channel       = 0 << 5 ; 0 is a tone channel in hardware, unlike OS where 0 is noise
-
-; Write the byte in A to the sound chip (via the slow databus).
-; TODO: May well be acceptable to use a subroutine for this instead of a macro.
-macro write_a
-    ; Put the value in A on the slow databus.
-    sta via_outa
-    ; Use the addressable latch to toggle the sound chip write pin. See AUG
-    ; section 23.2; the value we write to via_outb is %(PB3 PB2 PB1 PB0):
-    ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
-    ;   %000 = SN76489 write enable
-    ; - PB3 is the bit to write.
-    lda #%0000
-    sta via_outb
-    ; https://github.com/crtc-demos/bbc-teletext-video-player/blob/master/teletext/audio/aplay.a65
-    ; says we need at least 8us delay here. TODO: tricky's code seems to use a tighter actual 8us
-    ; delay, which may be better - particularly if we're called by interrupts and a delay holds up
-    ; foreground task a bit longer.
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    lda #%1000
-    sta via_outb
-endmacro
+sn_channel_0     = 0 << 5 ; 0 is a tone channel in hardware, unlike OS where 0 is noise
+sn_channel_1     = 1 << 5
+sn_channel_2     = 2 << 5
 
     org $2000
 
@@ -53,13 +30,24 @@ endmacro
     lda #$ff
     sta via_ddra
 
-    ; Set channel 0's tone to 1.
-    ; TODO: IIUC, this is tricky's advice on stardot. smspower.org link seems to say 0 but
-    ; tricky says it's different on the BBC. Maybe try it just to confirm?
-    lda #sn_latch_tone or sn_channel or 1 ; low bits of tone are 1
-    write_a
-    lda #sn_channel or 0 ; high bits of tone are 0
-    write_a
+    ; Set channel 0's tone to 1. smspower.org says this can be 0 or 1, but advice from tricky
+    ; on stardot suggests this has to be 1 on the Beeb. TODO: I haven't actually tried 0,
+    ; but since I'm using emulators it's possible 0 would work there but not on real hardware.
+    lda #sn_latch_tone or sn_channel_0 or 1 ; low bits of tone are 1
+    jsr write_a
+    lda #0 ; high bits of tone are 0
+    jsr write_a
+if multi_channel
+    ; TODO: Using a loop would be neater but just hacking for now.
+    lda #sn_latch_tone or sn_channel_1 or 1 ; low bits of tone are 1
+    jsr write_a
+    lda #0 ; high bits of tone are 0
+    jsr write_a
+    lda #sn_latch_tone or sn_channel_2 or 1 ; low bits of tone are 1
+    jsr write_a
+    lda #0 ; high bits of tone are 0
+    jsr write_a
+endif
 
     ; TODO: We may want to use Y to iterate through a page at a time, and/or to page-align
     ; the sample. Let's not worry about it for the moment until I see how timings work.
@@ -75,13 +63,25 @@ endmacro
     lsr a
     lsr a
     lsr a
-    ora #sn_latch_volume or sn_channel
-    write_a
+    ora #sn_latch_volume or sn_channel_0
+    jsr write_a
+if multi_channel
+    eor #sn_channel_1
+    jsr write_a
+    eor #sn_channel_1 EOR sn_channel_2
+    jsr write_a
+endif
     jsr delay
     lda (ptr),y ; TODO: note we assume Y=0 already
     and #%1111
-    ora #sn_latch_volume or sn_channel
-    write_a
+    ora #sn_latch_volume or sn_channel_0
+    jsr write_a
+if multi_channel
+    eor #sn_channel_1
+    jsr write_a
+    eor #sn_channel_1 EOR sn_channel_2
+    jsr write_a
+endif
     jsr delay
     ; TODO: I don't know if we need to be clever to have constant cycle count for smooth playback,
     ; let's just ignore it for now.
@@ -96,6 +96,34 @@ endmacro
     cli
     rts
 
+; Write the byte in A to the sound chip (via the slow databus).
+; TODO: Haven't adjusted any of the delay looks to allow for overhead now this is a subroutine
+.write_a
+    ; Put the value in A on the slow databus.
+    sta via_outa
+    ; Use the addressable latch to toggle the sound chip write pin. See AUG
+    ; section 23.2; the value we write to via_outb is %(PB3 PB2 PB1 PB0):
+    ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
+    ;   %000 = SN76489 write enable
+    ; - PB3 is the bit to write.
+    ldx #%0000
+    stx via_outb
+    ; https://github.com/crtc-demos/bbc-teletext-video-player/blob/master/teletext/audio/aplay.a65
+    ; says we need at least 8us delay here. TODO: tricky's code seems to use a tighter actual 8us
+    ; delay, which may be better - particularly if we're called by interrupts and a delay holds up
+    ; foreground task a bit longer.
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    ldx #%1000
+    stx via_outb
+    rts
+
+
     ; TODO: This is a super crude delay loop to give *approximately* 8kHz playback. Be more careful here
     ; once things are working properly. (Though if we are working with interrupts, a certain amount of
     ; jitter will be outside our control but we probably get called at a consistent rate without any
@@ -105,7 +133,11 @@ endmacro
     ; so let's say there are 45 cycles of overhead per value. OK, now an extra 7*3 since I've added nops. With a 2MHz clock and an 8kHz sample rate
     ; we need to write a sample every 250 cycles, so we need to burn about 205 cycles here. This is all
     ; so rough and ready that the '5' is excess precision... With nops, 205-21=184-ish.
+if not(multi_channel)
     ldx #37 ; 37*5 cycles per loop=185ish
+else
+    ldx #19 ; TODO: crude hack to allow for extra write time of 90 cycles for two extra channels
+endif
 .delay_loop
     dex
     bne delay_loop

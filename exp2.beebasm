@@ -80,15 +80,15 @@ endmacro
     lsr a
     lsr a
     inc current_nybble
-    lda ptr
-    cmp #<sample_end
+    ldy ptr
+    cpy #<sample_end
     beq maybe_at_sample_end
     check_no_page_crossing maybe_at_sample_end
     bvc got_nybble ; always branch
     check_no_page_crossing got_nybble
 .maybe_at_sample_end
-    lda ptr+1
-    cmp #>sample_end
+    ldy ptr+1
+    cpy #>sample_end
     beq at_sample_end
     bne got_nybble
 .low_nybble

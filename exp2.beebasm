@@ -131,18 +131,12 @@ endmacro
     ; - PB3 is the bit to write.
     ldx #%0000
     stx via_outb
-    ; https://github.com/crtc-demos/bbc-teletext-video-player/blob/master/teletext/audio/aplay.a65
-    ; says we need at least 8us delay here. TODO: tricky's code seems to use a tighter actual 8us
-    ; delay, which may be better - particularly if we're called by interrupts and a delay holds up
-    ; foreground task a bit longer.
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    ldx #%1000
+    ; We need 8us or 16 cycles between the two writes.
+    php        ; 3 cycles
+    plp        ; 4 cycles
+    php        ; 3 cycles
+    plp        ; 4 cycles
+    ldx #%1000 ; 2 cycles
     stx via_outb
     rts
 

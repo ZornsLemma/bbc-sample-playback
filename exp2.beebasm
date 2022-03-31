@@ -4,10 +4,6 @@
 ;   which is offline but has been forked and tweaked:
 ;   https://github.com/maxim-zhao/wav_to_psg
 
-; TODO: THIS TAKES (V APPROX) 7 SECS TO PLAY WHEREAS 3-CHANNEL EXP1 TAKES (VA) 4 SECS TO PLAY
-; - NEVER MIND THE QUALITY, THE DATA FILE IS THE SAME SIZE SO THEY SHOULD TAKE THE SAME TIME
-; TO PLAY, SO THIS INDICATES A PROBLEM
-
 ptr = $70
 
 ; System VIA addresses needed to talk to the sound chip.

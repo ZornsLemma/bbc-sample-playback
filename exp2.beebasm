@@ -118,6 +118,7 @@ sn_channel_2     = 2 << 5
 
     inc ptr
     bne loop
+    inc ptr+1
     lda ptr+1
     cmp #>sample_end ; TODO: will cut off last partial page of sample, not a problem for initial hack
     bne loop

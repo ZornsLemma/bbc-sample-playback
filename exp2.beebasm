@@ -4,8 +4,6 @@
 ;   which is offline but has been forked and tweaked:
 ;   https://github.com/maxim-zhao/wav_to_psg
 
-multi_channel = FALSE
-
 ptr = $70
 
 ; System VIA addresses needed to talk to the sound chip.
@@ -37,7 +35,6 @@ sn_channel_2     = 2 << 5
     jsr write_a
     lda #0 ; high bits of tone are 0
     jsr write_a
-if multi_channel
     ; TODO: Using a loop would be neater but just hacking for now.
     lda #sn_latch_tone or sn_channel_1 or 1 ; low bits of tone are 1
     jsr write_a
@@ -47,7 +44,6 @@ if multi_channel
     jsr write_a
     lda #0 ; high bits of tone are 0
     jsr write_a
-endif
 
     ; TODO: We may want to use Y to iterate through a page at a time, and/or to page-align
     ; the sample. Let's not worry about it for the moment until I see how timings work.
@@ -65,29 +61,59 @@ endif
     lsr a
     ora #sn_latch_volume or sn_channel_0
     jsr write_a
-if multi_channel
-    eor #sn_channel_1
-    jsr write_a
-    eor #sn_channel_1 EOR sn_channel_2
-    jsr write_a
-endif
     jsr delay
+
+    lda (ptr),y ; TODO: note we assume Y=0 already
+    and #%1111
+    ora #sn_latch_volume or sn_channel_1
+    jsr write_a
+    jsr delay
+
+    ; TODO: I don't know if we need to be clever to have constant cycle count for smooth playback,
+    ; let's just ignore it for now. We also ignore the possibility the first two of three incs is the one
+    ; that tips high byte over end, so we might play 2 bytes too far...
+    inc ptr
+    bne nocarry1
+    inc ptr+1
+.nocarry1
+
+    lda (ptr),y
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #sn_latch_volume or sn_channel_2
+    jsr write_a
+    jsr delay
+
     lda (ptr),y ; TODO: note we assume Y=0 already
     and #%1111
     ora #sn_latch_volume or sn_channel_0
     jsr write_a
-if multi_channel
-    eor #sn_channel_1
-    jsr write_a
-    eor #sn_channel_1 EOR sn_channel_2
-    jsr write_a
-endif
     jsr delay
-    ; TODO: I don't know if we need to be clever to have constant cycle count for smooth playback,
-    ; let's just ignore it for now.
+
+    inc ptr
+    bne nocarry2
+    inc ptr+1
+.nocarry2
+
+    lda (ptr),y
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #sn_latch_volume or sn_channel_1
+    jsr write_a
+    jsr delay
+
+    lda (ptr),y ; TODO: note we assume Y=0 already
+    and #%1111
+    ora #sn_latch_volume or sn_channel_2
+    jsr write_a
+    jsr delay
+
     inc ptr
     bne loop
-    inc ptr+1
     lda ptr+1
     cmp #>sample_end ; TODO: will cut off last partial page of sample, not a problem for initial hack
     bne loop
@@ -133,11 +159,7 @@ endif
     ; so let's say there are 45 cycles of overhead per value. OK, now an extra 7*3 since I've added nops. With a 2MHz clock and an 8kHz sample rate
     ; we need to write a sample every 250 cycles, so we need to burn about 205 cycles here. This is all
     ; so rough and ready that the '5' is excess precision... With nops, 205-21=184-ish.
-if not(multi_channel)
     ldx #37 ; 37*5 cycles per loop=185ish
-else
-    ldx #19 ; TODO: crude hack to allow for extra write time of 90 cycles for two extra channels
-endif
 .delay_loop
     dex
     bne delay_loop

@@ -5,6 +5,8 @@
 ;   https://github.com/maxim-zhao/wav_to_psg
 
 ptr = $70
+current_nybble = $72
+current_channel = $73
 
 ; System VIA addresses needed to talk to the sound chip.
 via_outb = $fe40
@@ -17,6 +19,12 @@ sn_latch_volume  = %1001 << 4
 sn_channel_0     = 0 << 5 ; 0 is a tone channel in hardware, unlike OS where 0 is noise
 sn_channel_1     = 1 << 5
 sn_channel_2     = 2 << 5
+
+; A macro for use after performance-critical branch instructions to check that
+; no page-crossing penalty is incurred.
+macro check_no_page_crossing target
+    assert hi(*) == hi(target)
+endmacro
 
     org $2000
 
@@ -45,6 +53,13 @@ sn_channel_2     = 2 << 5
     lda #0 ; high bits of tone are 0
     jsr write_a
 
+    ; current_nybble toggles between 63 and 64 so we can test it with BIT and
+    ; get the result in V.
+    lda #63
+    sta current_nybble
+    lda #sn_channel_0
+    sta current_channel
+
     ; TODO: We may want to use Y to iterate through a page at a time, and/or to page-align
     ; the sample. Let's not worry about it for the moment until I see how timings work.
     lda #<sample
@@ -52,6 +67,63 @@ sn_channel_2     = 2 << 5
     lda #>sample
     sta ptr+1
 .loop
+    ; TODO: Could just use self-modifying "lda abs" if easier/faster
+    ldy #0
+    lda (ptr),y
+    bit current_nybble
+    bvs low_nybble
+    check_no_page_crossing low_nybble
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    inc current_nybble
+    bvc got_nybble ; always branch
+    check_no_page_crossing got_nybble
+.low_nybble
+    and #%1111
+    dec current_nybble
+.got_nybble
+    ora #sn_latch_volume
+    ora current_channel
+    jsr write_a
+
+    ; 5+3+2+.6666*3+.3333*(2+2+3)=14.333 cycles
+    inc current_channel SFTODOWITHWRAPPING
+    lda current_channel
+    cmp #SFTODO
+    bne SFTODO9
+    lda #SFTODO
+    sta current_channel
+.SFTODO9
+
+    ; 3+2+0.666*3+0.333*(2+2)+2+3=13.333 cycles
+    lda current_channel ; 3
+    cmp #sn_channel_2; 2
+    bcc no_channel_wrap
+    check_no_page_crossing no_channel_wrap
+    lda #sn_channel_0-2; 2 ; we subtract 2 because C is set so following adc will add 2
+.no_channel_wrap
+    adc #1 ; 2
+    sta current_channel ; 3
+
+
+    ; 16 cycles
+    inc current_channel ; 5
+    dec CHANNELCOUNTDOWN ; 5
+    bne SFTODO10 ; .666*3+.333*(2+
+    lda #SFTODO ; 2
+    sta current_channel ; 3
+    lda #3 ; 2
+    sta CHANNELCOUNTDOWN ; 3
+.SFTODO10
+
+
+    jsr delay
+
+
+XXXOLDBELOWHERE
+
     ; TODO: Could just use self-modifying "lda abs" if easier/faster
     ldy #0
     lda (ptr),y

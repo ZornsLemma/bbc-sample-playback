@@ -157,7 +157,7 @@ current_channel = ora_imm_latch_volume_channel+1
     assert hi(P%) == hi(delay_loop) ; we don't want a page-crossing penalty TODO: check this is right way to check!
     rts
 
-    ; wav_to_psg packs 4-bit values into bytes with the first value in the high bits.
+    ; Our samples are 4-bit values packed into bytes with the first value in the high bits.
 .sample
     ; incbin "sine-440hz-8khz-mono.wav.psg.bin"
     ; incbin "brush-strokes-8khz-mono.wav.psg.bin"

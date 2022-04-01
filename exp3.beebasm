@@ -35,13 +35,6 @@ timer_value = (1000000 / sample_rate) - 2
 os_irq_a = $fc
 irq1v = $204
 
-; A macro for use after performance-critical branch instructions to check that
-; no page-crossing penalty is incurred.
-; TODO: maybe create things like "fast_beq target" macros which wrap beq+check_no_page_crossing
-macro check_no_page_crossing target
-    assert hi(*) == hi(target)
-endmacro
-
 macro set_sub_irq_handler target
     assert hi(target) == hi(sub_irq_handler_01_0)
     lda #lo(target)
@@ -72,11 +65,6 @@ macro write_a_to_slow_databus
     plp        ; 4 cycles
     lda #%1000 ; 2 cycles
     sta system_via_outb
-endmacro
-
-; TODO: Get rid of this macro if it does nothing but forward
-macro write_a_to_slow_databus_in_irq_handler
-    write_a_to_slow_databus
 endmacro
 
 macro return_from_irq
@@ -117,31 +105,32 @@ endmacro
 .sub_irq_handler_01_0
     lsr_a4
     ora #sn_latch_volume or sn_channel_0
-    write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
     set_sub_irq_handler sub_irq_handler_01_1
     return_from_irq
 
 .sub_irq_handler_01_1
     and #%1111
     ora #sn_latch_volume or sn_channel_1
-    write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
     set_sub_irq_handler sub_irq_handler_20_2
     xinc16_ptr_and_return_from_irq
 
 .sub_irq_handler_20_2
     lsr_a4
     ora #sn_latch_volume or sn_channel_2
-    write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
     set_sub_irq_handler sub_irq_handler_20_0
     return_from_irq
 
 .sub_irq_handler_20_0
     and #%1111
     ora #sn_latch_volume or sn_channel_0
-    write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
     set_sub_irq_handler sub_irq_handler_12_1
     xinc16_ptr_and_return_from_irq
 
+; This is in the middle so it's in branch range.
 .ptr_carry
     inc ptr+1
     lda ptr+1
@@ -155,14 +144,14 @@ endmacro
 .sub_irq_handler_12_1
     lsr_a4
     ora #sn_latch_volume or sn_channel_1
-    write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
     set_sub_irq_handler sub_irq_handler_12_2
     return_from_irq
 
 .sub_irq_handler_12_2
     and #%1111
     ora #sn_latch_volume or sn_channel_2
-    write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
     set_sub_irq_handler sub_irq_handler_01_0
 .restart_sample
     xinc16_ptr_and_return_from_irq
@@ -246,7 +235,8 @@ ptr = lda_abs_ptr+1
     ; in b-em even without logical keyboard mode, and even if I set sample rate down to 1000 it is
     ; still not working in b-em. - OK^2, maybe that was right. Really don't know. It is behaving
     ; itself in b-em now in physical keyboard mode, keyboard is a little unresponsive but not utterly
-    ; terrible.
+    ; terrible. - OK^3, I just tried again and the first execution left keyboard stuck, but BREAK
+    ; and a retry left keyboard working while this was running. Something weird going on.
 .init
     ; Set tone for channels 0-2 to 1. smspower.org says this can be 0 or 1, but
     ; advice from tricky on stardot suggests this has to be 1 on the Beeb. TODO:

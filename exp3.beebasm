@@ -32,7 +32,7 @@ sn_channel_3     = 3 << sn_channel_shift
 
 ; Frequency control: VIA is clocked at 1MHz and we need to subtract 2 to allow
 ; for the time taken to load the counter from the latch.
-sample_rate = 8000 ; Hz
+sample_rate = 1000 ; SFTODO 8000 ; Hz
 timer_value = (1000000 / sample_rate) - 2
 
 os_irq_a = $fc
@@ -87,14 +87,6 @@ endmacro
     lda #>our_irq_handler
     sta irq1v+1
 
-    ; Set user VIA timer 1 to free run/continuous mode generating interrupts.
-    lda #%01000000
-    sta user_via_acr
-
-    ; Enable user VIA timer 1 interrupt.
-    lda #%11000000
-    sta user_via_ier
-
     ; Set initial user VIA timer 1 value. TODO: Do we need to do this? Probably...
     ; Set user VIA timer 1 latches at the same time so the interrupts recur.
     lda #<timer_value
@@ -103,6 +95,14 @@ endmacro
     lda #>timer_value
     sta user_via_t1c_h
     sta user_via_t1l_h
+
+    ; Set user VIA timer 1 to free run/continuous mode generating interrupts.
+    lda #%01000000
+    sta user_via_acr
+
+    ; Enable user VIA timer 1 interrupt.
+    lda #%11000000
+    sta user_via_ier
 
     cli
     rts
@@ -125,7 +125,7 @@ endmacro
     txa
     pha
     tya
-    pla
+    pha
 
     ; Play the next part of the sample.
 .lda_abs_ptr
@@ -208,6 +208,7 @@ current_channel = ora_imm_latch_volume_channel+1
 ; TODO: Haven't adjusted any of the delay loops to allow for overhead now this is a subroutine
 .write_a
     ; AUG says we must do all slow databus acccess with interrupts disabled.
+    php ; TODO: Not sure what's going on but going to try this paranoid variant first - note that I flag is set when we enter an interrupt, so when we cli below inside interrupt we are re-enabling - however, we *have* cancelled the timer interrupt so we should be OK, although it's probably  not a good idea to do this as re-entrancy just seems likely to cause us to fail to hit our interval - but not sure really
     sei
 
     ; Set slow databus up for write.
@@ -232,7 +233,7 @@ current_channel = ora_imm_latch_volume_channel+1
     ldx #%1000 ; 2 cycles
     stx system_via_outb
 
-    cli
+    plp ; SFTODO PARANOIA SEE ABOVE cli
     rts
 
 

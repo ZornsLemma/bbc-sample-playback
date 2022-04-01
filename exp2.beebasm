@@ -15,9 +15,11 @@ via_ddra = $fe43
 ; SN76489 constants.
 sn_latch_tone    = %1000 << 4
 sn_latch_volume  = %1001 << 4
-sn_channel_0     = 0 << 5 ; 0 is a tone channel in hardware, unlike OS where 0 is noise
-sn_channel_1     = 1 << 5
-sn_channel_2     = 2 << 5
+sn_channel_shift = 5
+sn_channel_0     = 0 << sn_channel_shift ; 0 is a tone channel in hardware, unlike OS where 0 is noise
+sn_channel_1     = 1 << sn_channel_shift
+sn_channel_2     = 2 << sn_channel_shift
+sn_channel_3     = 3 << sn_channel_shift
 
 ; A macro for use after performance-critical branch instructions to check that
 ; no page-crossing penalty is incurred.
@@ -36,30 +38,27 @@ endmacro
     lda #$ff
     sta via_ddra
 
-    ; Set channel 0's tone to 1. smspower.org says this can be 0 or 1, but advice from tricky
-    ; on stardot suggests this has to be 1 on the Beeb. TODO: I haven't actually tried 0,
-    ; but since I'm using emulators it's possible 0 would work there but not on real hardware.
+    ; Set tone for channels 0-2 to 1. smspower.org says this can be 0 or 1, but
+    ; advice from tricky on stardot suggests this has to be 1 on the Beeb. TODO:
+    ; I haven't actually tried 0, but since I'm using emulators it's possible 0
+    ; would work there but not on real hardware.
     lda #sn_latch_tone or sn_channel_0 or 1 ; low bits of tone are 1
+.set_tone_loop
+    pha
     jsr write_a
     lda #0 ; high bits of tone are 0
     jsr write_a
-    ; TODO: Using a loop would be neater but just hacking for now.
-    lda #sn_latch_tone or sn_channel_1 or 1 ; low bits of tone are 1
-    jsr write_a
-    lda #0 ; high bits of tone are 0
-    jsr write_a
-    lda #sn_latch_tone or sn_channel_2 or 1 ; low bits of tone are 1
-    jsr write_a
-    lda #0 ; high bits of tone are 0
-    jsr write_a
+    pla
+    clc
+    adc #1<<sn_channel_shift
+    cmp #sn_latch_tone or sn_channel_3 or 1
+    bne set_tone_loop
 
     lda #opcode_clc
     sta current_nybble_clc_or_sec
     lda #sn_latch_volume or sn_channel_0
     sta current_channel
 
-    ; TODO: We may want to use Y to iterate through a page at a time, and/or to page-align
-    ; the sample. Let's not worry about it for the moment until I see how timings work.
     lda #<sample
     sta ptr
     lda #>sample
@@ -105,9 +104,9 @@ current_channel = ora_imm_latch_volume_channel+1
     cmp #sn_latch_volume or sn_channel_2
     bcc no_channel_wrap
     check_no_page_crossing no_channel_wrap
-    lda #((sn_latch_volume or sn_channel_0) - (1<<5) - 1) and &ff ; we subtract 1 because C is set
+    lda #((sn_latch_volume or sn_channel_0) - (1<<sn_channel_shift) - 1) and &ff ; we subtract 1 because C is set
 .no_channel_wrap
-    adc #1<<5
+    adc #1<<sn_channel_shift
     sta current_channel
 
     jsr delay

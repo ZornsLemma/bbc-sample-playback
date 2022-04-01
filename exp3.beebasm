@@ -47,6 +47,9 @@ endmacro
 
     org $2000
 
+    ; TODO: Right now, this *works* on BeebEm (albeit the sample slows noticeably if you type) but
+    ; on b-em it plays OK but the keyboard is totally unresponsive. This suggests I'm doing something
+    ; wrong/iffy with interrupts.
 .start
     ; Set tone for channels 0-2 to 1. smspower.org says this can be 0 or 1, but
     ; advice from tricky on stardot suggests this has to be 1 on the Beeb. TODO:

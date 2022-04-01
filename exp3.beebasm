@@ -242,7 +242,9 @@ ptr = lda_abs_ptr+1
     ; keypresses getting lost (which I think happens in all emulators) due to interrupts spending
     ; so much time disabled. It's not ideal but apart from improving the responsiveness generally,
     ; it's probably acceptable for this to be the case. Should have a permanent comment documenting
-    ; it if it remains an issue though.
+    ; it if it remains an issue though. - OK, I'm not sure that's right. I am seeing frozen keyboard
+    ; in b-em even without logical keyboard mode, and even if I set sample rate down to 1000 it is
+    ; still not working in b-em.
 .init
     ; Set tone for channels 0-2 to 1. smspower.org says this can be 0 or 1, but
     ; advice from tricky on stardot suggests this has to be 1 on the Beeb. TODO:

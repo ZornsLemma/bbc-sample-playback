@@ -1,0 +1,248 @@
+; References:
+;   https://www.smspower.org/Development/SN76489, which links to:
+;   https://www.smspower.org/forums/9686-VoiceEmulationOnTheSMS#44103
+;   which is offline but has been forked and tweaked:
+;   https://github.com/maxim-zhao/wav_to_psg
+
+opcode_clc = $18
+opcode_sec = $38
+
+; System VIA addresses needed to talk to the sound chip.
+system_via_outb = $fe40
+system_via_outa = $fe41
+system_via_ddra = $fe43
+
+; User VIA addresses needed for timer interrupts.
+user_via_t1c_l = $fe64
+user_via_t1c_h = $fe65
+user_via_t1l_l = $fe66
+user_via_t1l_h = $fe67
+user_via_acr = $fe6b
+user_via_ifr = $fe6d
+user_via_ier = $fe6e
+
+; SN76489 constants.
+sn_latch_tone    = %1000 << 4
+sn_latch_volume  = %1001 << 4
+sn_channel_shift = 5
+sn_channel_0     = 0 << sn_channel_shift ; 0 is a tone channel in hardware, unlike OS where 0 is noise
+sn_channel_1     = 1 << sn_channel_shift
+sn_channel_2     = 2 << sn_channel_shift
+sn_channel_3     = 3 << sn_channel_shift
+
+; Frequency control: VIA is clocked at 1MHz and we need to subtract 2 to allow
+; for the time taken to load the counter from the latch.
+sample_rate = 8000 ; Hz
+timer_value = (1000000 / sample_rate) - 2
+
+os_irq_a = $fc
+irq1v = $204
+
+; A macro for use after performance-critical branch instructions to check that
+; no page-crossing penalty is incurred.
+; TODO: maybe create things like "fast_beq target" macros which wrap beq+check_no_page_crossing
+macro check_no_page_crossing target
+    assert hi(*) == hi(target)
+endmacro
+
+    org $2000
+
+.start
+    ; Set tone for channels 0-2 to 1. smspower.org says this can be 0 or 1, but
+    ; advice from tricky on stardot suggests this has to be 1 on the Beeb. TODO:
+    ; I haven't actually tried 0, but since I'm using emulators it's possible 0
+    ; would work there but not on real hardware.
+    lda #sn_latch_tone or sn_channel_0 or 1 ; low bits of tone are 1
+.set_tone_loop
+    pha
+    jsr write_a
+    lda #0 ; high bits of tone are 0
+    jsr write_a
+    pla
+    clc
+    adc #1<<sn_channel_shift
+    cmp #sn_latch_tone or sn_channel_3 or 1
+    bne set_tone_loop
+
+    ; Patch self-modifying code with initial values: start playing the high
+    ; nybble of the first byte of the sample on channel 0.
+    lda #<sample
+    sta ptr
+    lda #>sample
+    sta ptr+1
+    lda #opcode_clc
+    sta current_nybble_clc_or_sec
+    lda #sn_latch_volume or sn_channel_0
+    sta current_channel
+
+    sei
+
+    ; Install our interrupt handler.
+    lda irq1v
+    sta jmp_parent_irq_handler+1
+    lda irq1v+1
+    sta jmp_parent_irq_handler+2
+    lda #<our_irq_handler
+    sta irq1v
+    lda #>our_irq_handler
+    sta irq1v+1
+
+    ; Set user VIA timer 1 to free run/continuous mode generating interrupts.
+    lda #%01000000
+    sta user_via_acr
+
+    ; Enable user VIA timer 1 interrupt.
+    lda #%11000000
+    sta user_via_ier
+
+    ; Set initial user VIA timer 1 value. TODO: Do we need to do this? Probably...
+    ; Set user VIA timer 1 latches at the same time so the interrupts recur.
+    lda #<timer_value
+    sta user_via_t1c_l
+    sta user_via_t1l_l
+    lda #>timer_value
+    sta user_via_t1c_h
+    sta user_via_t1l_h
+
+    cli
+    rts
+
+
+.our_irq_handler
+    ; An interrupt has occurred; is it timer 1?
+    bit user_via_ifr
+    bpl not_timer_1_interrupt
+
+    ; Yes, it is. Save the value of A saved by the OS on the stack.
+    lda os_irq_a
+    pha
+
+    ; Clear timer 1 interrupt flag.
+    lda user_via_t1c_l
+
+    ; Save X and Y.
+    ; TODO: I suspect we can get away with just X or Y, but let's be cautious for now.
+    txa
+    pha
+    tya
+    pla
+
+    ; Play the next part of the sample.
+.lda_abs_ptr
+ptr = lda_abs_ptr+1
+    lda $ffff ; patched at runtime
+.current_nybble_clc_or_sec
+    brk ; patched at runtime
+    bcs low_nybble
+    check_no_page_crossing low_nybble
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ldy #opcode_sec
+    sty current_nybble_clc_or_sec
+    bne got_nybble ; always branch
+    check_no_page_crossing got_nybble
+.low_nybble
+    and #%1111
+    ldy #opcode_clc
+    sty current_nybble_clc_or_sec
+    inc ptr
+    bne got_nybble
+    check_no_page_crossing got_nybble
+    inc ptr+1
+    ldy ptr+1
+    ; TODO: We're assuming samples always end on a page boundary here; we don't actually ensure this yet.
+    ; (Note that we don't assume this currently for sample start, so an arbitrary length sample can be
+    ; played precisely by starting it at the right offset. We don't take advantage of this either!)
+    cpy #>sample_end
+    beq at_sample_end
+.got_nybble
+.ora_imm_latch_volume_channel
+current_channel = ora_imm_latch_volume_channel+1
+    ora #$ff ; patched at runtime
+    jsr write_a
+
+    ; Advance current channel, wrapping back to sn_channel_0 after sn_channel_2.
+    lda current_channel
+    cmp #sn_latch_volume or sn_channel_2
+    bcc no_channel_wrap
+    check_no_page_crossing no_channel_wrap
+    lda #((sn_latch_volume or sn_channel_0) - (1<<sn_channel_shift) - 1) and &ff ; we subtract 1 because C is set
+.no_channel_wrap
+    adc #1<<sn_channel_shift
+    sta current_channel
+
+.finish_timer_1_handler
+    ; Restore X and Y. TODO: As above
+    pla
+    tay
+    pla
+    tax
+
+    ; Restore the value of A saved by the OS from the stack.
+    pla
+    sta os_irq_a
+
+.not_timer_1_interrupt
+.jmp_parent_irq_handler
+    jmp $ffff ; patched during initialisation
+
+.at_sample_end
+    ; Remove our claim on the IRQ handler now we've finished.
+    sei
+    lda jmp_parent_irq_handler+1
+    sta irq1v
+    lda jmp_parent_irq_handler+2
+    sta irq1v+1
+    cli
+
+    ; Disable user VIA timer 1 interrupt now we no longer need it.
+    lda #%01000000
+    sta user_via_ier
+
+    jmp finish_timer_1_handler
+
+
+; Write the byte in A to the sound chip (via the slow databus).
+; TODO: Haven't adjusted any of the delay loops to allow for overhead now this is a subroutine
+.write_a
+    ; AUG says we must do all slow databus acccess with interrupts disabled.
+    sei
+
+    ; Set slow databus up for write.
+    ; TODO: We may be able to avoid doing this every time, but probably safest not to.
+    ldx #$ff
+    stx system_via_ddra
+
+    ; Put the value in A on the slow databus.
+    sta system_via_outa
+    ; Use the addressable latch to toggle the sound chip write pin. See AUG
+    ; section 23.2; the value we write to system_via_outb is %(PB3 PB2 PB1 PB0):
+    ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
+    ;   %000 = SN76489 write enable
+    ; - PB3 is the bit to write.
+    ldx #%0000
+    stx system_via_outb
+    ; We need 8us or 16 cycles between the two writes.
+    php        ; 3 cycles
+    plp        ; 4 cycles
+    php        ; 3 cycles
+    plp        ; 4 cycles
+    ldx #%1000 ; 2 cycles
+    stx system_via_outb
+
+    cli
+    rts
+
+
+    ; Our samples are 4-bit values packed into bytes with the first value in the high bits.
+.sample
+    ; incbin "sine-440hz-8khz-mono.wav.psg.bin"
+    ; incbin "brush-strokes-8khz-mono.wav.psg.bin"
+    incbin "brush-strokes-8khz-mono.wav.pcmenc"
+.sample_end
+
+.end
+
+save "test", start, end

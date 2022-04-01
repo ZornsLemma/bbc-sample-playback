@@ -155,9 +155,9 @@ endmacro
 .lda_abs_ptr
 ptr = lda_abs_ptr+1
     lda $ffff ; patched at runtime
-    assert hi(high_nybble) = hi(low_nybble)
 .jmp_abs_low_or_high_nybble
-    jmp high_nybble ; patched at runtime
+    assert hi(high_nybble) = hi(low_nybble)
+    jmp high_nybble ; low byte of operand patched at runtime
 .high_nybble
     lsr a
     lsr a

@@ -127,6 +127,8 @@ endmacro
     tya
     pha
 
+    inc &70 ; TEMP HACK
+
     ; Play the next part of the sample.
 .lda_abs_ptr
 ptr = lda_abs_ptr+1
@@ -188,8 +190,8 @@ current_channel = ora_imm_latch_volume_channel+1
     pla
     sta os_irq_a
 
-    ; TODO: We should probably rti here; this is *our* interrupt and we don't expect anyone further down the
-    ; chain to do anything, and we want to return control to the caller ASAP to minimise overhead.
+    ; Just rti; this is our interrupt and we don't want to waste time having the OS do anything else with it.
+    rti
 
 .not_timer_1_interrupt
 .jmp_parent_irq_handler

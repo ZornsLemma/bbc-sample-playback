@@ -43,11 +43,6 @@ macro check_no_page_crossing target
 endmacro
 
 macro write_a_to_slow_databus
-    ; Set slow databus up for write.
-    ; TODO: We may be able to avoid doing this every time, but probably safest not to.
-    ldx #$ff
-    stx system_via_ddra
-
     ; Put the value in A on the slow databus.
     sta system_via_outa
     ; Use the addressable latch to toggle the sound chip write pin. See AUG
@@ -55,15 +50,15 @@ macro write_a_to_slow_databus
     ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
     ;   %000 = SN76489 write enable
     ; - PB3 is the bit to write.
-    ldx #%0000
-    stx system_via_outb
+    ldy #%0000
+    sty system_via_outb
     ; We need 8us or 16 cycles between the two writes.
     php        ; 3 cycles
     plp        ; 4 cycles
     php        ; 3 cycles
     plp        ; 4 cycles
-    ldx #%1000 ; 2 cycles
-    stx system_via_outb
+    ldy #%1000 ; 2 cycles
+    sty system_via_outb
 endmacro
 
     org $2000
@@ -132,24 +127,32 @@ endmacro
     rts
 
 
+    ; This does *not* preserve X, so we mustn't touch it.
+    ; TODO: Can I avoid touching Y too?
 .our_irq_handler
     ; An interrupt has occurred; is it timer 1?
     bit user_via_ifr
     bpl not_timer_1_interrupt
 
     ; Yes, it is. Save the value of A saved by the OS on the stack.
+    ; TODO: Can we get away without doing this, since interrupts are disabled all the time we're running?!
     lda os_irq_a
     pha
 
     ; Clear timer 1 interrupt flag.
     lda user_via_t1c_l
 
-    ; Save X and Y.
-    ; TODO: I suspect we can get away with just X or Y, but let's be cautious for now.
-    txa
-    pha
+    ; Save Y.
     tya
     pha
+
+    ; Set slow databus up for write.
+    ; TODO: We may be able to avoid doing this every time, but probably safest not to.
+    ; TODO: Have temp factored this out of write_a macro so we can do it here before A
+    ; contains anything valuable, but if it turns out we need to allow X or Y to be
+    ; corrupted anyway there's no real value in this.
+    lda #$ff
+    sta system_via_ddra
 
     ; Play the next part of the sample.
 .lda_abs_ptr
@@ -198,11 +201,9 @@ current_channel = ora_imm_latch_volume_channel+1
     sta current_channel
 
 .finish_timer_1_handler
-    ; Restore X and Y. TODO: As above
+    ; Restore Y.
     pla
     tay
-    pla
-    tax
 
     ; Restore the value of A saved by the OS from the stack.
     pla
@@ -248,6 +249,11 @@ endif
 ; must do all slow databus access with interrupts disabled.
 .write_a
     sei
+    ; Set slow databus up for write.
+    ; TODO: We may be able to avoid doing this every time, but probably safest not to.
+    ldy #$ff
+    sty system_via_ddra
+
     write_a_to_slow_databus
     cli
     rts

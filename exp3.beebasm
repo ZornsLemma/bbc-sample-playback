@@ -32,7 +32,7 @@ sn_channel_3     = 3 << sn_channel_shift
 
 ; Frequency control: VIA is clocked at 1MHz and we need to subtract 2 to allow
 ; for the time taken to load the counter from the latch.
-sample_rate = 1000 ; SFTODO 8000 ; Hz
+sample_rate = 8000 ; SFTODO 8000 ; Hz
 timer_value = (1000000 / sample_rate) - 2
 
 os_irq_a = $fc
@@ -131,6 +131,10 @@ endmacro
 .lda_abs_ptr
 ptr = lda_abs_ptr+1
     lda $ffff ; patched at runtime
+    ; TODO: Could we just have a JMP abs here which we patch to branch to the right place?
+    ; That would take the same number of bytes and take 3 cycles, vs 4 or 5 (depending on
+    ; branch taken or not) for current code. Assuming we only need to patch low byte of JMP
+    ; operand, which we could easily arrange.
 .current_nybble_clc_or_sec
     brk ; patched at runtime
     bcs low_nybble

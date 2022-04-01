@@ -198,6 +198,7 @@ current_channel = ora_imm_latch_volume_channel+1
     jmp $ffff ; patched during initialisation
 
 .at_sample_end
+if FALSE ; TODO: this code stops sample playback and may be useful, for but now I want to loop the sample for ease of testing
     ; Remove our claim on the IRQ handler now we've finished.
     sei
     lda jmp_parent_irq_handler+1
@@ -209,6 +210,17 @@ current_channel = ora_imm_latch_volume_channel+1
     ; Disable user VIA timer 1 interrupt now we no longer need it.
     lda #%01000000
     sta user_via_ier
+else
+    ; TODO: copy and paste of code from "start"; should factor out in a proper version.
+    lda #<sample
+    sta ptr
+    lda #>sample
+    sta ptr+1
+    lda #opcode_clc
+    sta current_nybble_clc_or_sec
+    lda #sn_latch_volume or sn_channel_0
+    sta current_channel
+endif
 
     jmp finish_timer_1_handler
 

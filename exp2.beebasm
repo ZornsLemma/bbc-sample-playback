@@ -54,15 +54,17 @@ endmacro
     cmp #sn_latch_tone or sn_channel_3 or 1
     bne set_tone_loop
 
+    ; Patch self-modifying code with initial values: start playing the high
+    ; nybble of the first byte of the sample on channel 0.
+    lda #<sample
+    sta ptr
+    lda #>sample
+    sta ptr+1
     lda #opcode_clc
     sta current_nybble_clc_or_sec
     lda #sn_latch_volume or sn_channel_0
     sta current_channel
 
-    lda #<sample
-    sta ptr
-    lda #>sample
-    sta ptr+1
 .loop
 .lda_abs_ptr
 ptr = lda_abs_ptr+1
@@ -118,7 +120,7 @@ current_channel = ora_imm_latch_volume_channel+1
     rts
 
 ; Write the byte in A to the sound chip (via the slow databus).
-; TODO: Haven't adjusted any of the delay looks to allow for overhead now this is a subroutine
+; TODO: Haven't adjusted any of the delay loops to allow for overhead now this is a subroutine
 .write_a
     ; Put the value in A on the slow databus.
     sta via_outa

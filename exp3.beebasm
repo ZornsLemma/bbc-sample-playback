@@ -76,6 +76,25 @@ macro write_a_to_slow_databus
     sta system_via_outb
 endmacro
 
+macro write_a_to_slow_databus_in_irq_handler
+    write_a_to_slow_databus
+
+    ; We need to save the value of A the OS interrupt handler put at os_irq_a on the
+    ; stack now we're going to re-enable interrupts.
+    lda os_irq_a
+    pha
+
+    cli
+endmacro
+
+macro return_from_irq
+    ; Restore the saved A. Since we're going to RTI immediately rather than
+    ; chain on to the OS handler, we don't need to put this value back at
+    ; os_irq_a.
+    pla
+    rti
+endmacro
+
 ; TODO: I thought with -w beebasm would allow this to be called inc16, but it doesn't seem to work.
 macro xinc16 addr
     inc addr
@@ -160,10 +179,9 @@ endmacro
     bit user_via_ifr
     bpl not_timer_1_interrupt
 
-    ; The 6502 automatically disables interrupts when processing an interrupt and the OS
-    ; doesn't automatically re-enable them. We are going to leave them disabled, so we
-    ; don't have to worry about saving the value of A saved by the OS at os_irq_a on the
-    ; stack in case another interrupt occurs.
+    ; The 6502 automatically disables interrupts when processing an interrupt
+    ; and the OS doesn't automatically re-enable them. We will leave them
+    ; disabled until we've finished writing to the slow databus.
 
     ; Clear timer 1 interrupt flag.
     lda user_via_t1c_l
@@ -182,8 +200,8 @@ ptr = lda_abs_ptr+1
 
 ; TODO: Factor commonality out of these via macros?
 
-; We use six sub-handlers to save cycles, trading space for time. The
-; sub-handler names have the form:
+; We use six sub-handlers to save cycles on conditional logic, trading space for
+; time. The sub-handler names have the form:
 ;   "sub_irq_handler_"
 ;   channel number of high nybble at ptr
 ;   channel number of low nybble at ptr
@@ -202,55 +220,50 @@ ptr = lda_abs_ptr+1
 .sub_irq_handler_01_0
     lsr_a4
     ora #sn_latch_volume or sn_channel_0
-    write_a_to_slow_databus
+    write_a_to_slow_databus_in_irq_handler
+    assert FALSE ; I THINK PROBLEM IS THAT WE'RE SETTING IRQ HANDLER WITH INTERRUPTS ENABLED (SO WE COULD GET HALF UPDATE) - IF THIS IS THE PROBLEM, GETTING THEM ALL IN THE SAME PAGE WOULD AVOID THIS BEING AN ISSUE AS WELL AS BEING A LITTLE FASTER - ALTHOUGH IF WE DO THAT, THE BIT OF THE HANDLER DONE AFTER RE-ENABLING INTERRUPTS IS SO SHORT THAT WE MIGHT BE BETTER OFF JUST NOT BOTHERING (WE'D OBVIOUSLY SAVE A FEW INSTURCTIONS AS A RESULT OF DOING THAT)
     set_sub_irq_handler sub_irq_handler_01_1
-    lda os_irq_a
-    rti
+    return_from_irq
 
 .sub_irq_handler_01_1
     and #%1111
     ora #sn_latch_volume or sn_channel_1
-    write_a_to_slow_databus
+    write_a_to_slow_databus_in_irq_handler
     set_sub_irq_handler sub_irq_handler_20_2
     xinc16 ptr
-    lda os_irq_a
-    rti
+    return_from_irq
 
 .sub_irq_handler_20_2
     lsr_a4
     ora #sn_latch_volume or sn_channel_2
-    write_a_to_slow_databus
+    write_a_to_slow_databus_in_irq_handler
     set_sub_irq_handler sub_irq_handler_20_0
-    lda os_irq_a
-    rti
+    return_from_irq
 
 .sub_irq_handler_20_0
     and #%1111
     ora #sn_latch_volume or sn_channel_0
-    write_a_to_slow_databus
+    write_a_to_slow_databus_in_irq_handler
     set_sub_irq_handler sub_irq_handler_12_1
     xinc16 ptr
-    lda os_irq_a
-    rti
+    return_from_irq
 
 .sub_irq_handler_12_1
     lsr_a4
     ora #sn_latch_volume or sn_channel_1
-    write_a_to_slow_databus
+    write_a_to_slow_databus_in_irq_handler
     set_sub_irq_handler sub_irq_handler_12_2
-    lda os_irq_a
-    rti
+    return_from_irq
 
 .sub_irq_handler_12_2
     and #%1111
     ora #sn_latch_volume or sn_channel_2
-    write_a_to_slow_databus
+    write_a_to_slow_databus_in_irq_handler
 .restart_sample
     set_sub_irq_handler sub_irq_handler_01_0
     inc ptr
     beq ptr_carry
-    lda os_irq_a
-    rti
+    return_from_irq
 .ptr_carry
     inc ptr+1
     lda ptr+1
@@ -259,8 +272,7 @@ ptr = lda_abs_ptr+1
     ; TODO: We don't actually align it like this yet...
     cmp #>sample_end
     beq at_sample_end
-    lda os_irq_a
-    rti
+    return_from_irq
 
 .at_sample_end
 if FALSE ; TODO: this code stops sample playback and may be useful, for but now I want to loop the sample for ease of testing

@@ -188,6 +188,9 @@ current_channel = ora_imm_latch_volume_channel+1
     pla
     sta os_irq_a
 
+    ; TODO: We should probably rti here; this is *our* interrupt and we don't expect anyone further down the
+    ; chain to do anything, and we want to return control to the caller ASAP to minimise overhead.
+
 .not_timer_1_interrupt
 .jmp_parent_irq_handler
     jmp $ffff ; patched during initialisation

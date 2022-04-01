@@ -135,7 +135,6 @@ endmacro
     inc ptr+1
     lda ptr+1
     ; We assume the sample always ends at a page boundary.
-    ; TODO: Since we only check every 3 bytes, we are also probably at risk of playing past end. Not worrying about that for the moment.
     ; TODO: We don't actually align it like this yet...
     cmp #>sample_end
     beq at_sample_end

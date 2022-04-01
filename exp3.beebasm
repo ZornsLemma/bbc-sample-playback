@@ -4,9 +4,6 @@
 ;   which is offline but has been forked and tweaked:
 ;   https://github.com/maxim-zhao/wav_to_psg
 
-opcode_clc = $18
-opcode_sec = $38
-
 ; System VIA addresses needed to talk to the sound chip.
 system_via_outb = $fe40
 system_via_outa = $fe41
@@ -97,8 +94,8 @@ endmacro
     sta ptr
     lda #>sample
     sta ptr+1
-    lda #opcode_clc
-    sta current_nybble_clc_or_sec
+    lda #lo(high_nybble)
+    sta jmp_abs_low_or_high_nybble+1
     lda #sn_latch_volume or sn_channel_0
     sta current_channel
 
@@ -154,32 +151,26 @@ endmacro
     tya
     pha
 
-    inc &70 ; TEMP HACK
-
     ; Play the next part of the sample.
 .lda_abs_ptr
 ptr = lda_abs_ptr+1
     lda $ffff ; patched at runtime
-    ; TODO: Could we just have a JMP abs here which we patch to branch to the right place?
-    ; That would take the same number of bytes and take 3 cycles, vs 4 or 5 (depending on
-    ; branch taken or not) for current code. Assuming we only need to patch low byte of JMP
-    ; operand, which we could easily arrange.
-.current_nybble_clc_or_sec
-    brk ; patched at runtime
-    bcs low_nybble
-    check_no_page_crossing low_nybble
+    assert hi(high_nybble) = hi(low_nybble)
+.jmp_abs_low_or_high_nybble
+    jmp high_nybble ; patched at runtime
+.high_nybble
     lsr a
     lsr a
     lsr a
     lsr a
-    ldy #opcode_sec
-    sty current_nybble_clc_or_sec
+    ldy #lo(low_nybble)
+    sty jmp_abs_low_or_high_nybble+1
     bne got_nybble ; always branch
     check_no_page_crossing got_nybble
 .low_nybble
     and #%1111
-    ldy #opcode_clc
-    sty current_nybble_clc_or_sec
+    ldy #lo(high_nybble)
+    sty jmp_abs_low_or_high_nybble+1
     inc ptr
     bne got_nybble
     check_no_page_crossing got_nybble
@@ -243,8 +234,8 @@ else
     sta ptr
     lda #>sample
     sta ptr+1
-    lda #opcode_clc
-    sta current_nybble_clc_or_sec
+    lda #lo(high_nybble)
+    sta jmp_abs_low_or_high_nybble+1
     lda #sn_latch_volume or sn_channel_0
     sta current_channel
 endif

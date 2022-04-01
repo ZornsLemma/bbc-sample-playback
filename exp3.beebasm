@@ -134,10 +134,12 @@ endmacro
     bit user_via_ifr
     bpl not_timer_1_interrupt
 
+if FALSE ; TODO EXPERIMENTAL
     ; Yes, it is. Save the value of A saved by the OS on the stack.
     ; TODO: Can we get away without doing this, since interrupts are disabled all the time we're running?!
     lda os_irq_a
     pha
+endif
 
     ; Clear timer 1 interrupt flag.
     lda user_via_t1c_l
@@ -205,9 +207,14 @@ current_channel = ora_imm_latch_volume_channel+1
     pla
     tay
 
+if FALSE ; TODO EXPERIMENTAL
     ; Restore the value of A saved by the OS from the stack.
     pla
     sta os_irq_a
+else
+    ; Restore the value of A saved by the OS.
+    lda os_irq_a
+endif
 
     ; Just rti; this is our interrupt and we don't want to waste time having the OS do anything else with it.
     rti

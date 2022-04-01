@@ -45,6 +45,30 @@ macro check_no_page_crossing target
     assert hi(*) == hi(target)
 endmacro
 
+macro write_a_to_slow_databus
+    ; Set slow databus up for write.
+    ; TODO: We may be able to avoid doing this every time, but probably safest not to.
+    ldx #$ff
+    stx system_via_ddra
+
+    ; Put the value in A on the slow databus.
+    sta system_via_outa
+    ; Use the addressable latch to toggle the sound chip write pin. See AUG
+    ; section 23.2; the value we write to system_via_outb is %(PB3 PB2 PB1 PB0):
+    ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
+    ;   %000 = SN76489 write enable
+    ; - PB3 is the bit to write.
+    ldx #%0000
+    stx system_via_outb
+    ; We need 8us or 16 cycles between the two writes.
+    php        ; 3 cycles
+    plp        ; 4 cycles
+    php        ; 3 cycles
+    plp        ; 4 cycles
+    ldx #%1000 ; 2 cycles
+    stx system_via_outb
+endmacro
+
     org $2000
 
     ; TODO: Right now, this *works* on BeebEm (albeit the sample slows noticeably if you type) but
@@ -170,7 +194,7 @@ ptr = lda_abs_ptr+1
 .ora_imm_latch_volume_channel
 current_channel = ora_imm_latch_volume_channel+1
     ora #$ff ; patched at runtime
-    jsr write_a
+    write_a_to_slow_databus ; TODO: trying to avoid subroutine overhead, worth it? also allows me to avoid redundant (?) faffing with I flag - I believe here in interrupt handler, we *know* I is set
 
     ; Advance current channel, wrapping back to sn_channel_0 after sn_channel_2.
     lda current_channel
@@ -228,40 +252,18 @@ endif
     jmp finish_timer_1_handler
 
 
-; Write the byte in A to the sound chip (via the slow databus).
-; TODO: Haven't adjusted any of the delay loops to allow for overhead now this is a subroutine
+; Write the byte in A to the sound chip (via the slow databus). Unlike the
+; macro, this explicitly disables and re-enables interrupts; the AUG says we
+; must do all slow databus access with interrupts disabled.
 .write_a
-    ; AUG says we must do all slow databus acccess with interrupts disabled.
-    php ; TODO: Not sure what's going on but going to try this paranoid variant first - note that I flag is set when we enter an interrupt, so when we cli below inside interrupt we are re-enabling - however, we *have* cancelled the timer interrupt so we should be OK, although it's probably  not a good idea to do this as re-entrancy just seems likely to cause us to fail to hit our interval - but not sure really
     sei
-
-    ; Set slow databus up for write.
-    ; TODO: We may be able to avoid doing this every time, but probably safest not to.
-    ldx #$ff
-    stx system_via_ddra
-
-    ; Put the value in A on the slow databus.
-    sta system_via_outa
-    ; Use the addressable latch to toggle the sound chip write pin. See AUG
-    ; section 23.2; the value we write to system_via_outb is %(PB3 PB2 PB1 PB0):
-    ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
-    ;   %000 = SN76489 write enable
-    ; - PB3 is the bit to write.
-    ldx #%0000
-    stx system_via_outb
-    ; We need 8us or 16 cycles between the two writes.
-    php        ; 3 cycles
-    plp        ; 4 cycles
-    php        ; 3 cycles
-    plp        ; 4 cycles
-    ldx #%1000 ; 2 cycles
-    stx system_via_outb
-
-    plp ; SFTODO PARANOIA SEE ABOVE cli
+    write_a_to_slow_databus
+    cli
     rts
 
 
-    ; Our samples are 4-bit values packed into bytes with the first value in the high bits.
+    ; Our samples are 4-bit values packed into bytes with the first value in the
+    ; high bits.
 .sample
     ; incbin "sine-440hz-8khz-mono.wav.psg.bin"
     ; incbin "brush-strokes-8khz-mono.wav.psg.bin"

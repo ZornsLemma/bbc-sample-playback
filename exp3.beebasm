@@ -145,8 +145,7 @@ endif
     lda user_via_t1c_l
 
     ; Save Y.
-    tya
-    pha
+    sty ldy_imm_saved_y+1
 
     ; Set slow databus up for write.
     ; TODO: We may be able to avoid doing this every time, but probably safest not to.
@@ -204,8 +203,8 @@ current_channel = ora_imm_latch_volume_channel+1
 
 .finish_timer_1_handler
     ; Restore Y.
-    pla
-    tay
+.ldy_imm_saved_y
+    ldy #$ff ; patched at runtime
 
 if FALSE ; TODO EXPERIMENTAL
     ; Restore the value of A saved by the OS from the stack.

@@ -86,9 +86,12 @@ endmacro
 
     org $2000
 
-    ; TODO: Right now, this *works* on BeebEm (albeit the sample slows noticeably if you type) but
-    ; on b-em it plays OK but the keyboard is totally unresponsive. This suggests I'm doing something
-    ; wrong/iffy with interrupts.
+    ; TODO: This works on BeebEm, jsbeeb and b-em, *but* in b-em logical keyboard mode seems to be
+    ; incompatible and causes all keyboard input to be lost. I suspect this is a side-effect of
+    ; keypresses getting lost (which I think happens in all emulators) due to interrupts spending
+    ; so much time disabled. It's not ideal but apart from improving the responsiveness generally,
+    ; it's probably acceptable for this to be the case. Should have a permanent comment documenting
+    ; it if it remains an issue though.
 .start
     ; Set tone for channels 0-2 to 1. smspower.org says this can be 0 or 1, but
     ; advice from tricky on stardot suggests this has to be 1 on the Beeb. TODO:
@@ -178,6 +181,23 @@ ptr = lda_abs_ptr+1
     jmp $ffff ; patched at runtime
 
 ; TODO: Factor commonality out of these via macros?
+
+; We use six sub-handlers to save cycles, trading space for time. The
+; sub-handler names have the form:
+;   "sub_irq_handler_"
+;   channel number of high nybble at ptr
+;   channel number of low nybble at ptr
+;   "_"
+;   channel number to play on
+;
+; We iterate through the sequence:
+;    01_0
+;    01_1
+;    20_2
+;    20_0
+;    12_1
+;    12_2
+; and then repeat this.
 
 .sub_irq_handler_01_0
     lsr_a4

@@ -42,6 +42,21 @@ macro check_no_page_crossing target
     assert hi(*) == hi(target)
 endmacro
 
+macro set_sub_irq_handler target
+    ; TODO: Can I have all the sub handlers share a common high byte? They may be too big to all fit, but see. (The "last" one can stray over into a second page, as long as its first byte is in the common page.)
+    lda #<target
+    sta jmp_sub_irq_handler+1
+    lda #>target
+    sta jmp_sub_irq_handler+2
+endmacro
+
+macro lsr_a4
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+endmacro
+
 macro write_a_to_slow_databus
     ; Put the value in A on the slow databus.
     sta system_via_outa
@@ -50,15 +65,23 @@ macro write_a_to_slow_databus
     ; - (PB2 PB1 PB0) selects one of the eight latch output bits;
     ;   %000 = SN76489 write enable
     ; - PB3 is the bit to write.
-    ldy #%0000
-    sty system_via_outb
+    lda #%0000
+    sta system_via_outb
     ; We need 8us or 16 cycles between the two writes.
     php        ; 3 cycles
     plp        ; 4 cycles
     php        ; 3 cycles
     plp        ; 4 cycles
-    ldy #%1000 ; 2 cycles
-    sty system_via_outb
+    lda #%1000 ; 2 cycles
+    sta system_via_outb
+endmacro
+
+; TODO: I thought with -w beebasm would allow this to be called inc16, but it doesn't seem to work.
+macro xinc16 addr
+    inc addr
+    bne no_carry
+    inc addr+1
+.no_carry
 endmacro
 
     org $2000
@@ -89,10 +112,7 @@ endmacro
     sta ptr
     lda #>sample
     sta ptr+1
-    lda #lo(high_nybble)
-    sta jmp_abs_low_or_high_nybble+1
-    lda #sn_latch_volume or sn_channel_0
-    sta current_channel
+    set_sub_irq_handler sub_irq_handler_01_0
 
     sei
 
@@ -127,31 +147,26 @@ endmacro
     rts
 
 
-    ; This does *not* preserve X, so we mustn't touch it.
-    ; TODO: Can I avoid touching Y too?
+.not_timer_1_interrupt
+.jmp_parent_irq_handler
+    jmp $ffff ; patched during initialisation
+
+    ; This does *not* preserve X or Y, so we can only use A. TODO MAKE SURE THAT'S TRUE!
 .our_irq_handler
     ; An interrupt has occurred; is it timer 1?
     bit user_via_ifr
     bpl not_timer_1_interrupt
 
-if FALSE ; TODO EXPERIMENTAL
-    ; Yes, it is. Save the value of A saved by the OS on the stack.
-    ; TODO: Can we get away without doing this, since interrupts are disabled all the time we're running?!
-    lda os_irq_a
-    pha
-endif
+    ; The 6502 automatically disables interrupts when processing an interrupt and the OS
+    ; doesn't automatically re-enable them. We are going to leave them disabled, so we
+    ; don't have to worry about saving the value of A saved by the OS at os_irq_a on the
+    ; stack in case another interrupt occurs.
 
     ; Clear timer 1 interrupt flag.
     lda user_via_t1c_l
 
-    ; Save Y.
-    sty ldy_imm_saved_y+1
-
     ; Set slow databus up for write.
     ; TODO: We may be able to avoid doing this every time, but probably safest not to.
-    ; TODO: Have temp factored this out of write_a macro so we can do it here before A
-    ; contains anything valuable, but if it turns out we need to allow X or Y to be
-    ; corrupted anyway there's no real value in this.
     lda #$ff
     sta system_via_ddra
 
@@ -159,68 +174,73 @@ endif
 .lda_abs_ptr
 ptr = lda_abs_ptr+1
     lda $ffff ; patched at runtime
-.jmp_abs_low_or_high_nybble
-    assert hi(high_nybble) = hi(low_nybble)
-    jmp high_nybble ; low byte of operand patched at runtime
-.high_nybble
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ldy #lo(low_nybble)
-    sty jmp_abs_low_or_high_nybble+1
-    bne got_nybble ; always branch
-    check_no_page_crossing got_nybble
-.low_nybble
-    and #%1111
-    ldy #lo(high_nybble)
-    sty jmp_abs_low_or_high_nybble+1
-    inc ptr
-    bne got_nybble
-    check_no_page_crossing got_nybble
-    inc ptr+1
-    ldy ptr+1
-    ; TODO: We're assuming samples always end on a page boundary here; we don't actually ensure this yet.
-    ; (Note that we don't assume this currently for sample start, so an arbitrary length sample can be
-    ; played precisely by starting it at the right offset. We don't take advantage of this either!)
-    cpy #>sample_end
-    beq at_sample_end
-.got_nybble
-.ora_imm_latch_volume_channel
-current_channel = ora_imm_latch_volume_channel+1
-    ora #$ff ; patched at runtime
-    write_a_to_slow_databus ; TODO: trying to avoid subroutine overhead, worth it? also allows me to avoid redundant (?) faffing with I flag - I believe here in interrupt handler, we *know* I is set
+.jmp_sub_irq_handler
+    jmp $ffff ; patched at runtime
 
-    ; Advance current channel, wrapping back to sn_channel_0 after sn_channel_2.
-    lda current_channel
-    cmp #sn_latch_volume or sn_channel_2
-    bcc no_channel_wrap
-    check_no_page_crossing no_channel_wrap
-    lda #((sn_latch_volume or sn_channel_0) - (1<<sn_channel_shift) - 1) and &ff ; we subtract 1 because C is set
-.no_channel_wrap
-    adc #1<<sn_channel_shift
-    sta current_channel
+; TODO: Factor commonality out of these via macros?
 
-.finish_timer_1_handler
-    ; Restore Y.
-.ldy_imm_saved_y
-    ldy #$ff ; patched at runtime
-
-if FALSE ; TODO EXPERIMENTAL
-    ; Restore the value of A saved by the OS from the stack.
-    pla
-    sta os_irq_a
-else
-    ; Restore the value of A saved by the OS.
+.sub_irq_handler_01_0
+    lsr_a4
+    ora #sn_latch_volume or sn_channel_0
+    write_a_to_slow_databus
+    set_sub_irq_handler sub_irq_handler_01_1
     lda os_irq_a
-endif
-
-    ; Just rti; this is our interrupt and we don't want to waste time having the OS do anything else with it.
     rti
 
-.not_timer_1_interrupt
-.jmp_parent_irq_handler
-    jmp $ffff ; patched during initialisation
+.sub_irq_handler_01_1
+    and #%1111
+    ora #sn_latch_volume or sn_channel_1
+    write_a_to_slow_databus
+    set_sub_irq_handler sub_irq_handler_20_2
+    xinc16 ptr
+    lda os_irq_a
+    rti
+
+.sub_irq_handler_20_2
+    lsr_a4
+    ora #sn_latch_volume or sn_channel_2
+    write_a_to_slow_databus
+    set_sub_irq_handler sub_irq_handler_20_0
+    lda os_irq_a
+    rti
+
+.sub_irq_handler_20_0
+    and #%1111
+    ora #sn_latch_volume or sn_channel_0
+    write_a_to_slow_databus
+    set_sub_irq_handler sub_irq_handler_12_1
+    xinc16 ptr
+    lda os_irq_a
+    rti
+
+.sub_irq_handler_12_1
+    lsr_a4
+    ora #sn_latch_volume or sn_channel_1
+    write_a_to_slow_databus
+    set_sub_irq_handler sub_irq_handler_12_2
+    lda os_irq_a
+    rti
+
+.sub_irq_handler_12_2
+    and #%1111
+    ora #sn_latch_volume or sn_channel_2
+    write_a_to_slow_databus
+.restart_sample
+    set_sub_irq_handler sub_irq_handler_01_0
+    inc ptr
+    beq ptr_carry
+    lda os_irq_a
+    rti
+.ptr_carry
+    inc ptr+1
+    lda ptr+1
+    ; We assume the sample always ends at a page boundary.
+    ; TODO: Since we only check every 3 bytes, we are also probably at risk of playing past end. Not worrying about that for the moment.
+    ; TODO: We don't actually align it like this yet...
+    cmp #>sample_end
+    beq at_sample_end
+    lda os_irq_a
+    rti
 
 .at_sample_end
 if FALSE ; TODO: this code stops sample playback and may be useful, for but now I want to loop the sample for ease of testing
@@ -237,17 +257,13 @@ if FALSE ; TODO: this code stops sample playback and may be useful, for but now 
     sta user_via_ier
 else
     ; TODO: copy and paste of code from "start"; should factor out in a proper version.
-    lda #<sample
+    lda #<(sample-1)
     sta ptr
-    lda #>sample
+    lda #>(sample-1)
     sta ptr+1
-    lda #lo(high_nybble)
-    sta jmp_abs_low_or_high_nybble+1
-    lda #sn_latch_volume or sn_channel_0
-    sta current_channel
+    jmp restart_sample ; TODO: could probably bne always to save a byte
 endif
 
-    jmp finish_timer_1_handler
 
 
 ; Write the byte in A to the sound chip (via the slow databus). Unlike the

@@ -71,8 +71,14 @@ macro write_a_to_slow_databus
 endmacro
 
 macro return_from_irq
+if FALSE ; SFTODO EXP
     lda os_irq_a
     rti
+else
+assert FALSE ; this doesn't work but it's not currently clear why, need to come back to it
+    lda os_irq_a ; TODO: not necessary? but play it safe while it doesn't work anyway
+    jmp (jmp_parent_irq_handler+1) ; rti TODO: tricky points out this may cause keyboard interrupts which occur to be ignore
+endif
 endmacro
 
 ; TODO: I thought with -w beebasm would allow this to be called inc16, but it doesn't seem to work.

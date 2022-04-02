@@ -200,6 +200,13 @@ endif
     ; Clear timer 1 interrupt flag.
     lda user_via_t1c_l
 
+    ; TODO: It's probably not helpful, but we could maybe check the current timer 1
+    ; value to work out if we're running slow. Although I suppose the best we could
+    ; do would be to notice if we've slipped enough that we should just omit an
+    ; entire sample value to "catch up", and that probably requires more than just
+    ; checking the timer 1 value. We also obviously don't want to waste too many
+    ; cycles here either. Just a thought.
+
     ; Set slow databus up for write.
     ; TODO: We may be able to avoid doing this every time, but probably safest not to.
     lda #$ff

@@ -62,6 +62,7 @@ macro write_a_to_slow_databus
     lda #%0000
     sta system_via_outb
     ; We need 8us or 16 cycles between the two writes.
+    ; TODO: tricky's suggestion - we should do some useful work in here - this is probably not too hard now we have six sub-handlers, but I haven't looked yet
     php        ; 3 cycles
     plp        ; 4 cycles
     php        ; 3 cycles
@@ -75,7 +76,7 @@ if FALSE ; SFTODO EXP
     lda os_irq_a
     rti
 else
-assert FALSE ; this doesn't work but it's not currently clear why, need to come back to it
+;assert FALSE ; this doesn't work but it's not currently clear why, need to come back to it
     lda os_irq_a ; TODO: not necessary? but play it safe while it doesn't work anyway
     jmp (jmp_parent_irq_handler+1) ; rti TODO: tricky points out this may cause keyboard interrupts which occur to be ignore
 endif

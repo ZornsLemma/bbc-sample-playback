@@ -6,7 +6,8 @@
 
 ; System VIA addresses needed to talk to the sound chip.
 system_via_outb = $fe40
-system_via_outa = $fe41
+; TODO: Delete this if not used: system_via_outa = $fe41
+system_via_outa_nh = $fe4f
 system_via_ddra = $fe43
 
 ; User VIA addresses needed for timer interrupts.
@@ -50,7 +51,7 @@ endmacro
 
 macro write_a_to_slow_databus
     ; Put the value in A on the slow databus.
-    sta system_via_outa
+    sta system_via_outa_nh
     ; Use the addressable latch to toggle the sound chip write pin. See AUG
     ; section 23.2; the value we write to system_via_outb is %(PB3 PB2 PB1 PB0):
     ; - (PB2 PB1 PB0) selects one of the eight latch output bits;

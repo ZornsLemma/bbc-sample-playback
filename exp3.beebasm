@@ -50,7 +50,9 @@ macro lsr_a4
 endmacro
 
 macro write_a_to_slow_databus
-    ; Put the value in A on the slow databus.
+    ; Put the value in A on the slow databus. We must use the non-handshaking
+    ; output register, despite the sample code in the AUG using the handshaking
+    ; register at $fe41. Thanks to hexwab and tricky for pointing this out.
     sta system_via_outa_nh
     ; Use the addressable latch to toggle the sound chip write pin. See AUG
     ; section 23.2; the value we write to system_via_outb is %(PB3 PB2 PB1 PB0):

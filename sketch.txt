@@ -1,0 +1,21 @@
+We need a 256 byte bounce buffer (probably at &900) and a few bytes (part of &Axx is probably free; INSV handler uses a bit) for an OSWORD &7F/OSGBPB/OSFIND block.
+
+Code will live in sideways RAM but will not be an OS-recognised sideways ROM (if nothing else, we don't want to have to worry about BREAK/CTRL-BREAK to get OS to recognise it). It might be *RUNnable at (say) &3000 and relocate itself into first bank found by FINDSWR.
+
+FINDSWR should perhaps find an extra bank in sound builds. Loader would "hide" the extra bank before main Ozmoo executables gets to see it. Minor UI issues here around how we report this as I think an extra bank could make the display wrap onto next line.
+
+We probably use OSWORD &E1+ (&E0 is used for host cache) via USERV to call into our code. We can use an extended vector to point USERV into ROM, we're not performance critical, this should chain fine with the tube host cache USERV handler, and we don't want to impose extra main RAM requirement when we can get by without it. We want roughly the following:
+
+1) Initialise sound support. Called by loader. Tells it if it's working with DFS (in which case sounds are always expected to be found on :2.SOUNDn, say) or other fs (in which case it's given a prefix, as we currently use for restarting the executable) which it will prepend when opening files. For DFS we will have to read the catalogue at this point and parse it to determine the file start sectors and lengths. For non-DFS we probably also want to use the relevant OS call to read the catalogue and determine lengths. This code can be as big as we want because it can live in the sound buffer part of the sideways RAM bank and be overwritten alter, as we only need it once during initialisation.
+
+2) Prepare sound n. Upstream Ozmoo currently loads all sounds at once, but we will need this as we only have a single 16K bank. Even if we eventually (probably not) get clever and use multiple banks, we are very unlikely to have enough RAM to load everything. Not a huge change to Ozmoo code. When we load a sound we probably need to load it at (end of RAM bank-256-sample length). Since we'll be reading in 256-byte chunks (I think, at least with OSWORD &7F) we have to "waste" the last page of the bank to allow for extra. By aligning the *start* partway through a page, we only need to check for hitting the end of the sample when there's a carry in the low byte of the pointer. Since the samples may repeat, we can't pad them out with zeros at the end.
+
+3) Play sound n using these ares. This will probably pass the sound_arg_{effect,volume,repeats} values Ozmoo maintains into the ROM via OSWORD. This will need to set up interrupt handlers and we will probably have to use a RAM stub to page in our bank because this is performance critical.
+************
+************ THIS IS *PROBABLY* FINE, BUT IF THE EXTRA OVERHEAD OF PAGING IN/OUT OUR BANK KILLS THE PERFORMANCE THE WHOLE IDEA IS A NON-
+************ STARTER, SO NEED TO EXPERIMENT WITH THIS ASAP BEFORE WRITING LOTS OF OTHER CODE
+************
+
+4) Stop playing.
+
+

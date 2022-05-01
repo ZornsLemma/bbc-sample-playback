@@ -72,7 +72,7 @@ macro write_a_to_slow_databus
 endmacro
 
 macro return_from_irq
-if FALSE ; SFTODO EXP
+if TRUE ; SFTODO EXP
     lda os_irq_a
     rti
 else
